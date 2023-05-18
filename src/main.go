@@ -40,17 +40,17 @@ builds
 */
 
 type Module struct {
-	Name         string
-	Improvements []string
-	Changes      []string
-	Added        []string
-	Removed      []string
-	Fixes        []string
-	Deprecated   []string
-	Tests        []string
-	Docs         []string
-	Refactored   []string
-	Breaking     []string
+	Name       string
+	Improved   []string
+	Changed    []string
+	Added      []string
+	Removed    []string
+	Fixed      []string
+	Deprecated []string
+	Tests      []string
+	Docs       []string
+	Refactored []string
+	Breaking   []string
 }
 
 type Release struct {
@@ -92,17 +92,17 @@ type CategoryInfo struct {
 
 func infoFromCategoryName(name string) CategoryInfo {
 	lookup := map[string]CategoryInfo{
-		"added":        {":star2:", "added"},
-		"changes":      {":hammer_and_wrench:", "changed"},
-		"fixes":        {":lady_beetle:", "fixed"},
-		"performance":  {":zap:", "performance"},
-		"tests":        {":vertical_traffic_light:", "test"},
-		"removed":      {":fire:", "removed"},
-		"improvements": {":art:", "improved"},
-		"breaking":     {":rotating_light:", "breaking"},
-		"deprecated":   {":rotating_light:", "deprecated"},
-		"refactored":   {":recycle:", "refactor"},
-		"docs":         {":book:", "docs"},
+		"added":       {":star2:", "added"},
+		"changed":     {":hammer_and_wrench:", "changed"},
+		"fixed":       {":lady_beetle:", "fixed"},
+		"performance": {":zap:", "performance"},
+		"tests":       {":vertical_traffic_light:", "test"},
+		"removed":     {":fire:", "removed"},
+		"improved":    {":art:", "improved"},
+		"breaking":    {":rotating_light:", "breaking"},
+		"deprecated":  {":rotating_light:", "deprecated"},
+		"refactored":  {":recycle:", "refactor"},
+		"docs":        {":book:", "docs"},
 	}
 
 	info, wasFound := lookup[name]
@@ -127,22 +127,23 @@ func moduleLines(strings []string, name string, writer io.Writer) {
 func moduleGroupedLines(module *Module, writer io.Writer) {
 	moduleLines(module.Breaking, "breaking", writer)
 	moduleLines(module.Added, "added", writer)
-	moduleLines(module.Fixes, "fixes", writer)
-	moduleLines(module.Changes, "changes", writer)
+	moduleLines(module.Fixed, "fixed", writer)
+	moduleLines(module.Changed, "changed", writer)
 	moduleLines(module.Removed, "removed", writer)
-	moduleLines(module.Improvements, "improvements", writer)
+	moduleLines(module.Improved, "improvements", writer)
 	moduleLines(module.Docs, "docs", writer)
 	moduleLines(module.Tests, "tests", writer)
 	moduleLines(module.Refactored, "refactored", writer)
 }
 
-// https://github.com/vweevers/common-changelog
 func writeToMarkdown(root *ChangelogYaml, writer io.Writer) {
 	fmt.Fprintln(writer, "# Changelog")
 	for _, release := range root.Releases {
 		releaseLink := fmt.Sprintf("[%v](https://%v/releases/tag/%v) (%v)", release.Name, root.Repo, release.Name, release.Date)
-		fmt.Fprintf(writer, "\n## :bookmark: %v\n\n", releaseLink)
-		fmt.Fprintf(writer, "%v\n", release.Notice)
+		fmt.Fprintf(writer, "\n## :bookmark: %v\n", releaseLink)
+		if release.Notice != "" {
+			fmt.Fprintf(writer, "\n%v\n", release.Notice)
+		}
 		for _, module := range release.Modules {
 			info, found := root.Modules[module.Name]
 			if !found {
