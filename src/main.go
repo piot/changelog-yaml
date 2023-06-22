@@ -6,38 +6,17 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"os"
+	"regexp"
+	"strconv"
 
 	"gopkg.in/yaml.v2"
 )
-
-/*
-New features/added/feat
-Changes/Changed
-Removed
-Bugs fixed/bug fixes/fix/fixed
-Security
-
-Docs
-Refactor
-Performance
-Tests
-Breaking
-Deprecate
-*/
-
-/*
-Not included:
-Styles
-Chores
-ci
-revert
-builds
-*/
 
 type Module struct {
 	Name       string
@@ -46,6 +25,7 @@ type Module struct {
 	Added      []string
 	Removed    []string
 	Fixed      []string
+	Workaround []string
 	Deprecated []string
 	Tests      []string
 	Docs       []string
@@ -72,8 +52,8 @@ type ChangelogYaml struct {
 	Modules  map[string]ModuleDefinition `yaml:"modules"`
 }
 
-func (c *ChangelogYaml) ReadYaml(filename string) *ChangelogYaml {
-	yamlFile, err := ioutil.ReadFile(filename)
+func (c *ChangelogYaml) ReadYaml(filename io.Reader) *ChangelogYaml {
+	yamlFile, err := ioutil.ReadAll(filename)
 	if err != nil {
 		log.Fatalf("could not read file %v ", err)
 	}
@@ -95,6 +75,7 @@ func infoFromCategoryName(name string) CategoryInfo {
 		"added":       {":star2:", "added"},
 		"changed":     {":hammer_and_wrench:", "changed"},
 		"fixed":       {":lady_beetle:", "fixed"},
+		"workaround":  {":see_no_evil:", "workaround"},
 		"performance": {":zap:", "performance"},
 		"tests":       {":vertical_traffic_light:", "test"},
 		"removed":     {":fire:", "removed"},
@@ -113,27 +94,44 @@ func infoFromCategoryName(name string) CategoryInfo {
 	return info
 }
 
-func moduleLines(strings []string, name string, writer io.Writer) {
+func moduleLines(moduleRepoUrl string, strings []string, name string, writer io.Writer) error {
 	for _, line := range strings {
 		categoryInfo := infoFromCategoryName(name)
 		prefix := categoryInfo.Prefix
 		if name == "breaking" {
 			prefix += fmt.Sprintf("[%v]", categoryInfo.Name)
 		}
-		fmt.Fprintf(writer, "* %v %v\n", prefix, line)
+		re := regexp.MustCompile(`\(\#\d*\)`)
+		allMatches := re.FindAllStringIndex(line, -1)
+		lineToPrint := line
+		for _, match := range allMatches {
+			matchString := line[match[0]+2 : match[1]-1]
+			pullRequestId, err := strconv.Atoi(matchString)
+			if err != nil {
+				return err
+			}
+			suffix := fmt.Sprintf("pull/%v", pullRequestId)
+			pullRequestLink := fmt.Sprintf("https://%v/%v", moduleRepoUrl, suffix)
+			pullRequestCompleteLink := fmt.Sprintf("([#%v](%s))", pullRequestId, pullRequestLink)
+			lineToPrint = line[:match[0]] + pullRequestCompleteLink + line[match[1]:]
+		}
+		fmt.Fprintf(writer, "* %v %v\n", prefix, lineToPrint)
 	}
+
+	return nil
 }
 
-func moduleGroupedLines(module *Module, writer io.Writer) {
-	moduleLines(module.Breaking, "breaking", writer)
-	moduleLines(module.Added, "added", writer)
-	moduleLines(module.Fixed, "fixed", writer)
-	moduleLines(module.Changed, "changed", writer)
-	moduleLines(module.Removed, "removed", writer)
-	moduleLines(module.Improved, "improvements", writer)
-	moduleLines(module.Docs, "docs", writer)
-	moduleLines(module.Tests, "tests", writer)
-	moduleLines(module.Refactored, "refactored", writer)
+func moduleGroupedLines(moduleRepoUrl string, module *Module, writer io.Writer) {
+	moduleLines(moduleRepoUrl, module.Breaking, "breaking", writer)
+	moduleLines(moduleRepoUrl, module.Added, "added", writer)
+	moduleLines(moduleRepoUrl, module.Fixed, "fixed", writer)
+	moduleLines(moduleRepoUrl, module.Workaround, "workaround", writer)
+	moduleLines(moduleRepoUrl, module.Changed, "changed", writer)
+	moduleLines(moduleRepoUrl, module.Removed, "removed", writer)
+	moduleLines(moduleRepoUrl, module.Improved, "improvements", writer)
+	moduleLines(moduleRepoUrl, module.Docs, "docs", writer)
+	moduleLines(moduleRepoUrl, module.Tests, "tests", writer)
+	moduleLines(moduleRepoUrl, module.Refactored, "refactored", writer)
 }
 
 func writeToMarkdown(root *ChangelogYaml, writer io.Writer) {
@@ -141,17 +139,23 @@ func writeToMarkdown(root *ChangelogYaml, writer io.Writer) {
 	for _, release := range root.Releases {
 		releaseLink := fmt.Sprintf("[%v](https://%v/releases/tag/%v) (%v)", release.Name, root.Repo, release.Name, release.Date)
 		fmt.Fprintf(writer, "\n## :bookmark: %v\n", releaseLink)
+
 		if release.Notice != "" {
 			fmt.Fprintf(writer, "\n%v\n", release.Notice)
 		}
+
 		for _, module := range release.Modules {
 			info, found := root.Modules[module.Name]
 			if !found {
 				panic(fmt.Errorf("must have info for module '%s'", module.Name))
 			}
 			repoLink := fmt.Sprintf("https://%v", info.Repo)
-			fmt.Fprintf(writer, "\n### [%v](%v) - %v\n\n", module.Name, repoLink, info.Description)
-			moduleGroupedLines(&module, writer)
+			description := ""
+			if info.Description != "" {
+				description = fmt.Sprintf(" - %v", info.Description)
+			}
+			fmt.Fprintf(writer, "\n### [%v](%v)%v\n\n", module.Name, repoLink, description)
+			moduleGroupedLines(info.Repo, &module, writer)
 		}
 	}
 }
@@ -159,8 +163,8 @@ func writeToMarkdown(root *ChangelogYaml, writer io.Writer) {
 func main() {
 	var c ChangelogYaml
 
-	filename := os.Args[1]
-	c.ReadYaml(filename)
+	reader := bufio.NewReader(os.Stdin)
+	c.ReadYaml(reader)
 
 	writeToMarkdown(&c, os.Stdout)
 }
