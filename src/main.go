@@ -120,25 +120,58 @@ func replaceAtProfileLink(line string) string {
 }
 
 func replacePullRequestLink(line string, moduleRepoURL string) (string, error) {
-	re := regexp.MustCompile(`\(\#\d*\)`)
+	re := regexp.MustCompile(`\#\d*`)
 	allMatches := re.FindAllStringIndex(line, -1)
-	lineToPrint := line
 
-	for _, match := range allMatches {
-		matchString := line[match[0]+2 : match[1]-1]
+	lineToPrint := ""
+	previousMatchPosition := 0
 
-		pullRequestID, err := strconv.Atoi(matchString)
-		if err != nil {
-			return "", err
+	if len(allMatches) > 0 {
+		for _, match := range allMatches {
+			matchString := line[match[0]+1 : match[1]]
+
+			pullRequestID, err := strconv.Atoi(matchString)
+			if err != nil {
+				return "", err
+			}
+
+			suffix := fmt.Sprintf("pull/%v", pullRequestID)
+			pullRequestLink := fmt.Sprintf("https://%v/%v", moduleRepoURL, suffix)
+			pullRequestCompleteLink := fmt.Sprintf("[#%v](%s)", pullRequestID, pullRequestLink)
+			lineToPrint += line[previousMatchPosition:match[0]] + pullRequestCompleteLink
+			previousMatchPosition = match[1]
 		}
 
-		suffix := fmt.Sprintf("pull/%v", pullRequestID)
-		pullRequestLink := fmt.Sprintf("https://%v/%v", moduleRepoURL, suffix)
-		pullRequestCompleteLink := fmt.Sprintf("([#%v](%s))", pullRequestID, pullRequestLink)
-		lineToPrint = line[:match[0]] + pullRequestCompleteLink + line[match[1]:]
+		lineToPrint += line[previousMatchPosition:]
+	} else {
+		lineToPrint = line
 	}
 
 	return lineToPrint, nil
+}
+
+func replaceCommitHashLink(line string, moduleRepoURL string) string {
+	re := regexp.MustCompile(`\$[a-f\d]*`)
+	allMatches := re.FindAllStringIndex(line, -1)
+
+	lineToPrint := ""
+	previousMatchPosition := 0
+
+	if len(allMatches) > 0 {
+		for _, match := range allMatches {
+			commitHashString := line[match[0]+1 : match[1]]
+			commitHashLink := fmt.Sprintf("https://%v/commit/%v", moduleRepoURL, commitHashString)
+			commitHashLinkComplete := fmt.Sprintf("[%v](%s)", commitHashString, commitHashLink)
+			lineToPrint += line[previousMatchPosition:match[0]] + commitHashLinkComplete
+			previousMatchPosition = match[1]
+		}
+
+		lineToPrint += line[previousMatchPosition:]
+	} else {
+		lineToPrint = line
+	}
+
+	return lineToPrint
 }
 
 func moduleLines(moduleRepoUrl string, strings []string, name string, writer io.Writer) error {
@@ -154,6 +187,8 @@ func moduleLines(moduleRepoUrl string, strings []string, name string, writer io.
 		if err != nil {
 			return err
 		}
+
+		line = replaceCommitHashLink(line, moduleRepoUrl)
 
 		line = replaceAtProfileLink(line)
 
