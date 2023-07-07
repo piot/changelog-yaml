@@ -20,17 +20,18 @@ import (
 )
 
 type Module struct {
-	Improved   []string
-	Changed    []string
-	Added      []string
-	Removed    []string
-	Fixed      []string
-	Workaround []string
-	Deprecated []string
-	Tests      []string
-	Docs       []string
-	Refactored []string
-	Breaking   []string
+	Improved    []string
+	Changed     []string
+	Added       []string
+	Removed     []string
+	Fixed       []string
+	Workaround  []string
+	Deprecated  []string
+	Tests       []string
+	Docs        []string
+	Refactored  []string
+	Performance []string
+	Breaking    []string
 }
 
 type Release struct {
@@ -81,8 +82,8 @@ func infoFromCategoryName(name string) CategoryInfo {
 		"tests":       {":vertical_traffic_light:", "test"},
 		"removed":     {":fire:", "removed"},
 		"improved":    {":art:", "improved"},
-		"breaking":    {":rotating_light:", "breaking"},
-		"deprecated":  {":rotating_light:", "deprecated"},
+		"breaking":    {":triangular_flag_on_post:", "breaking"},
+		"deprecated":  {":spider_web:", "deprecated"},
 		"refactored":  {":recycle:", "refactor"},
 		"docs":        {":book:", "docs"},
 	}
@@ -209,6 +210,8 @@ func moduleGroupedLines(moduleRepoUrl string, module *Module, writer io.Writer) 
 	moduleLines(moduleRepoUrl, module.Docs, "docs", writer)
 	moduleLines(moduleRepoUrl, module.Tests, "tests", writer)
 	moduleLines(moduleRepoUrl, module.Refactored, "refactored", writer)
+	moduleLines(moduleRepoUrl, module.Performance, "performance", writer)
+	moduleLines(moduleRepoUrl, module.Deprecated, "deprecated", writer)
 }
 
 func writeToMarkdown(root *ChangelogYaml, writer io.Writer) error {
