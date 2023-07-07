@@ -20,18 +20,19 @@ import (
 )
 
 type Module struct {
-	Improved    []string
-	Changed     []string
-	Added       []string
-	Removed     []string
-	Fixed       []string
-	Workaround  []string
-	Deprecated  []string
-	Tests       []string
-	Docs        []string
-	Refactored  []string
-	Performance []string
-	Breaking    []string
+	Improved     []string
+	Changed      []string
+	Added        []string
+	Removed      []string
+	Fixed        []string
+	Workaround   []string
+	Deprecated   []string
+	Tests        []string
+	Docs         []string
+	Refactored   []string
+	Performance  []string
+	Breaking     []string
+	Experimental []string
 }
 
 type Release struct {
@@ -74,18 +75,19 @@ type CategoryInfo struct {
 
 func infoFromCategoryName(name string) CategoryInfo {
 	lookup := map[string]CategoryInfo{
-		"added":       {":star2:", "added"},
-		"changed":     {":hammer_and_wrench:", "changed"},
-		"fixed":       {":lady_beetle:", "fixed"},
-		"workaround":  {":see_no_evil:", "workaround"},
-		"performance": {":zap:", "performance"},
-		"tests":       {":vertical_traffic_light:", "test"},
-		"removed":     {":fire:", "removed"},
-		"improved":    {":art:", "improved"},
-		"breaking":    {":triangular_flag_on_post:", "breaking"},
-		"deprecated":  {":spider_web:", "deprecated"},
-		"refactored":  {":recycle:", "refactor"},
-		"docs":        {":book:", "docs"},
+		"added":        {":star2:", "added"},
+		"changed":      {":hammer_and_wrench:", "changed"},
+		"fixed":        {":lady_beetle:", "fixed"},
+		"workaround":   {":see_no_evil:", "workaround"},
+		"performance":  {":zap:", "performance"},
+		"tests":        {":vertical_traffic_light:", "test"},
+		"removed":      {":fire:", "removed"},
+		"improved":     {":art:", "improved"},
+		"breaking":     {":triangular_flag_on_post:", "breaking"},
+		"deprecated":   {":spider_web:", "deprecated"},
+		"refactored":   {":recycle:", "refactor"},
+		"experimental": {":alembic:", "experimental"},
+		"docs":         {":book:", "docs"},
 	}
 
 	info, wasFound := lookup[name]
@@ -212,6 +214,7 @@ func moduleGroupedLines(moduleRepoUrl string, module *Module, writer io.Writer) 
 	moduleLines(moduleRepoUrl, module.Refactored, "refactored", writer)
 	moduleLines(moduleRepoUrl, module.Performance, "performance", writer)
 	moduleLines(moduleRepoUrl, module.Deprecated, "deprecated", writer)
+	moduleLines(moduleRepoUrl, module.Experimental, "experimental", writer)
 }
 
 func writeToMarkdown(root *ChangelogYaml, writer io.Writer) error {
