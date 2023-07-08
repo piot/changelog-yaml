@@ -33,6 +33,7 @@ type Module struct {
 	Performance  []string
 	Breaking     []string
 	Experimental []string
+	Noted        []string
 }
 
 type Release struct {
@@ -88,6 +89,7 @@ func infoFromCategoryName(name string) CategoryInfo {
 		"refactored":   {":recycle:", "refactor"},
 		"experimental": {":alembic:", "experimental"},
 		"docs":         {":book:", "docs"},
+		"noted":        {":beetle:", "known issue"},
 	}
 
 	info, wasFound := lookup[name]
@@ -215,6 +217,7 @@ func moduleGroupedLines(moduleRepoUrl string, module *Module, writer io.Writer) 
 	moduleLines(moduleRepoUrl, module.Performance, "performance", writer)
 	moduleLines(moduleRepoUrl, module.Deprecated, "deprecated", writer)
 	moduleLines(moduleRepoUrl, module.Experimental, "experimental", writer)
+	moduleLines(moduleRepoUrl, module.Noted, "noted", writer)
 }
 
 func writeToMarkdown(root *ChangelogYaml, writer io.Writer) error {
