@@ -51,6 +51,20 @@ changelog-yaml-go < changelog.yaml > CHANGELOG.md
 
 `@[GithubUsername]` will be replaced with a link to the user, e.g. `@piot` -> https://github.com/piot/
 
+#### Admonition
+
+`[ADMONITION]:[space] text`. Admonition types supported:
+
+* NOTE
+* IMPORTANT
+* WARNING
+
+Example:
+
+```text
+NOTE: This release requires latest firmware update
+```
+
 ### Example
 
 ```yaml
@@ -98,7 +112,3 @@ releases:
           - Skip increase forcedStepInRowCounter if client transport connection
             is downloading game state
 ```
-
-## TODO
-
-* Admonition support in `notice`, e.g: "NOTE:", "IMPORTANT:", etc

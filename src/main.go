@@ -7,6 +7,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -14,6 +15,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v2"
 )
@@ -77,20 +79,20 @@ const githubUrlPrefix = "https://github.com/"
 
 func infoFromCategoryName(name string) CategoryInfo {
 	lookup := map[string]CategoryInfo{
-		"added":        {":star2:", "added"},
-		"changed":      {":hammer_and_wrench:", "changed"},
-		"fixed":        {":lady_beetle:", "fixed"},
-		"workaround":   {":see_no_evil:", "workaround"},
-		"performance":  {":zap:", "performance"},
-		"tests":        {":vertical_traffic_light:", "test"},
-		"removed":      {":fire:", "removed"},
-		"improved":     {":art:", "improved"},
-		"breaking":     {":triangular_flag_on_post:", "breaking"},
-		"deprecated":   {":spider_web:", "deprecated"},
-		"refactored":   {":recycle:", "refactor"},
-		"experimental": {":alembic:", "experimental"},
-		"docs":         {":book:", "docs"},
-		"noted":        {":beetle:", "known issue"},
+		"added":        {"star2", "added"},
+		"changed":      {"hammer_and_wrench", "changed"},
+		"fixed":        {"lady_beetle", "fixed"},
+		"workaround":   {"see_no_evil", "workaround"},
+		"performance":  {"zap", "performance"},
+		"tests":        {"vertical_traffic_light", "test"},
+		"removed":      {"fire", "removed"},
+		"improved":     {"art", "improved"},
+		"breaking":     {"triangular_flag_on_post", "breaking"},
+		"deprecated":   {"spider_web", "deprecated"},
+		"refactored":   {"recycle", "refactor"},
+		"experimental": {"alembic", "experimental"},
+		"docs":         {"book", "docs"},
+		"noted":        {"beetle", "known issue"},
 	}
 
 	info, wasFound := lookup[name]
@@ -101,7 +103,46 @@ func infoFromCategoryName(name string) CategoryInfo {
 	return info
 }
 
-func replaceAtProfileLink(line string) string {
+func stringToAdmonitionType(name string) AdmonitionType {
+	switch name {
+	case "WARNING":
+		return Warning
+	case "NOTE":
+		return Note
+	case "IMPORTANT":
+		return Important
+	}
+
+	panic(fmt.Errorf("unknown admonition: '%s'", name))
+}
+
+func replaceAdmonition(line string, formatter Formatter) string {
+	re := regexp.MustCompile(`(WARNING|TIP|NOTE|IMPORTANT|CAUTION):\s.*`)
+	allMatches := re.FindAllStringIndex(line, -1)
+
+	lineToPrint := ""
+	previousMatchPosition := 0
+
+	if len(allMatches) > 0 {
+		for _, match := range allMatches {
+			matchString := line[match[0]:match[1]]
+
+			parts := strings.Split(matchString, ":")
+
+			lineToPrint += line[previousMatchPosition:match[0]] + formatter.Admonition(stringToAdmonitionType(parts[0]),
+				parts[1][1:])
+			previousMatchPosition = match[1]
+		}
+
+		lineToPrint += line[previousMatchPosition:]
+	} else {
+		lineToPrint = line
+	}
+
+	return lineToPrint
+}
+
+func replaceAtProfileLink(line string, formatter Formatter) string {
 	re := regexp.MustCompile(`@[a-z\d-]*`)
 	allMatches := re.FindAllStringIndex(line, -1)
 
@@ -112,7 +153,7 @@ func replaceAtProfileLink(line string) string {
 		for _, match := range allMatches {
 			usernameString := line[match[0]+1 : match[1]]
 			usernameProfileLink := fmt.Sprintf("%s%v", githubUrlPrefix, usernameString)
-			usernameProfileLinkComplete := fmt.Sprintf("[@%v](%s)", usernameString, usernameProfileLink)
+			usernameProfileLinkComplete := formatter.Link("@"+usernameString, usernameProfileLink)
 			lineToPrint += line[previousMatchPosition:match[0]] + usernameProfileLinkComplete
 			previousMatchPosition = match[1]
 		}
@@ -125,7 +166,7 @@ func replaceAtProfileLink(line string) string {
 	return lineToPrint
 }
 
-func replacePullRequestLink(line string, repoShortUrl string) (string, error) {
+func replacePullRequestLink(line string, repoShortUrl string, formatter Formatter) (string, error) {
 	re := regexp.MustCompile(`#\d*`)
 	allMatches := re.FindAllStringIndex(line, -1)
 
@@ -143,7 +184,7 @@ func replacePullRequestLink(line string, repoShortUrl string) (string, error) {
 
 			suffix := fmt.Sprintf("pull/%v", pullRequestID)
 			pullRequestLink := fmt.Sprintf("%s%v/%v", githubUrlPrefix, repoShortUrl, suffix)
-			pullRequestCompleteLink := fmt.Sprintf("[#%v](%s)", pullRequestID, pullRequestLink)
+			pullRequestCompleteLink := formatter.Link(fmt.Sprintf("#%v", pullRequestID), pullRequestLink)
 			lineToPrint += line[previousMatchPosition:match[0]] + pullRequestCompleteLink
 			previousMatchPosition = match[1]
 		}
@@ -156,7 +197,7 @@ func replacePullRequestLink(line string, repoShortUrl string) (string, error) {
 	return lineToPrint, nil
 }
 
-func replaceCommitHashLink(line string, repoShortUrl string) string {
+func replaceCommitHashLink(line string, repoShortUrl string, formatter Formatter) string {
 	re := regexp.MustCompile(`\$[a-f\d]*`)
 	allMatches := re.FindAllStringIndex(line, -1)
 
@@ -167,7 +208,7 @@ func replaceCommitHashLink(line string, repoShortUrl string) string {
 		for _, match := range allMatches {
 			commitHashString := line[match[0]+1 : match[1]]
 			commitHashLink := fmt.Sprintf("%s%v/commit/%v", githubUrlPrefix, repoShortUrl, commitHashString)
-			commitHashLinkComplete := fmt.Sprintf("[%v](%s)", commitHashString, commitHashLink)
+			commitHashLinkComplete := formatter.Link(commitHashString, commitHashLink)
 			lineToPrint += line[previousMatchPosition:match[0]] + commitHashLinkComplete
 			previousMatchPosition = match[1]
 		}
@@ -180,25 +221,29 @@ func replaceCommitHashLink(line string, repoShortUrl string) string {
 	return lineToPrint
 }
 
-func linesForRepo(repoShortUrl string, strings []string, name string, writer io.Writer) error {
+func linesForRepo(repoShortUrl string, strings []string, name string, formatter Formatter, writer io.Writer) error {
 	for _, line := range strings {
 		categoryInfo := infoFromCategoryName(name)
-		prefix := categoryInfo.Prefix
+		iconName := categoryInfo.Prefix
+
+		prefix := formatter.Icon(iconName)
 
 		if name == "breaking" {
 			prefix += fmt.Sprintf("[%v]", categoryInfo.Name)
 		}
 
-		line, err := replacePullRequestLink(line, repoShortUrl)
+		line, err := replacePullRequestLink(line, repoShortUrl, formatter)
 		if err != nil {
 			return err
 		}
 
-		line = replaceCommitHashLink(line, repoShortUrl)
+		line = replaceCommitHashLink(line, repoShortUrl, formatter)
 
-		line = replaceAtProfileLink(line)
+		line = replaceAtProfileLink(line, formatter)
 
-		if _, err := fmt.Fprintf(writer, "* %v %v\n", prefix, line); err != nil {
+		completeLine := prefix + " " + line
+
+		if _, err := fmt.Fprint(writer, formatter.BulletPoint(completeLine)); err != nil {
 			return err
 		}
 	}
@@ -211,7 +256,7 @@ type LineInfo struct {
 	Lines []string
 }
 
-func textLinesForTheRepo(repoShortUrl string, repoChanges *RepoChanges, writer io.Writer) error {
+func textLinesForTheRepo(repoShortUrl string, repoChanges *RepoChanges, formatter Formatter, writer io.Writer) error {
 	lines := []LineInfo{
 		{"breaking", repoChanges.Breaking},
 		{"added", repoChanges.Added},
@@ -230,7 +275,7 @@ func textLinesForTheRepo(repoShortUrl string, repoChanges *RepoChanges, writer i
 	}
 
 	for _, line := range lines {
-		if err := linesForRepo(repoShortUrl, line.Lines, line.Name, writer); err != nil {
+		if err := linesForRepo(repoShortUrl, line.Lines, line.Name, formatter, writer); err != nil {
 			return err
 		}
 	}
@@ -238,17 +283,142 @@ func textLinesForTheRepo(repoShortUrl string, repoChanges *RepoChanges, writer i
 	return nil
 }
 
-func writeToMarkdown(root *ChangelogYaml, writer io.Writer) error {
-	fmt.Fprintln(writer, "# Changelog")
+type AdmonitionType uint8
+
+const (
+	Note AdmonitionType = iota
+	Important
+	Warning
+)
+
+type Formatter interface {
+	Heading(level int, header string) string
+	BulletPoint(text string) string
+	Icon(name string) string
+	Link(name string, link string) string
+	Admonition(admonitionType AdmonitionType, text string) string
+}
+
+func emojiNameToUnicode(name string) int {
+	lookup := map[string]int{
+		"bookmark":                0x1F516,
+		"triangular_flag_on_post": 0x1f6a9,
+		"star2":                   0x1f31f,
+		"hammer_and_wrench":       0x1f6e0,
+		"lady_beetle":             0x1f41e,
+		"see_no_evil":             0x1f648,
+		"zap":                     0x26a1,
+		"vertical_traffic_light":  0x1f6a6,
+		"fire":                    0x1f525,
+		"art":                     0x1f3a8,
+		"spider_web":              0x1f578,
+		"recycle":                 0x267b,
+		"alembic":                 0x2697,
+		"book":                    0x1F4D6,
+		"noted":                   0x1FAB2,
+	}
+
+	replacement, wasFound := lookup[name]
+	if !wasFound {
+		panic(fmt.Errorf("can not replace %s", name))
+	}
+
+	return replacement
+}
+
+type MarkdownFormatter struct {
+}
+
+func (m *MarkdownFormatter) Heading(level int, header string) string {
+	return strings.Repeat("#", level) + " " + header + "\n\n"
+}
+
+func (m *MarkdownFormatter) BulletPoint(text string) string {
+	return "* " + text + "\n"
+}
+
+func (m *MarkdownFormatter) Icon(name string) string {
+	return ":" + name + ":"
+}
+
+func (m *MarkdownFormatter) Link(name string, link string) string {
+	return fmt.Sprintf("[%s](%s)", name, link)
+}
+
+func AdmonitionTypeToGithubName(admonitionType AdmonitionType) string {
+	switch admonitionType {
+	case Note:
+		return "NOTE"
+	case Important:
+		return "IMPORTANT"
+	case Warning:
+		return "WARNING"
+	}
+
+	panic(fmt.Errorf("unknown admonition"))
+}
+
+func (m *MarkdownFormatter) Admonition(admonitionType AdmonitionType, text string) string {
+	return fmt.Sprintf("> [!%s]\\\n> %s", AdmonitionTypeToGithubName(admonitionType), text)
+}
+
+type AsciiDocFormatter struct {
+}
+
+func (a *AsciiDocFormatter) Heading(level int, header string) string {
+	return strings.Repeat("=", level) + " " + header + "\n\n"
+}
+
+func (m *AsciiDocFormatter) BulletPoint(text string) string {
+	return "* " + text + "\n"
+}
+
+func (m *AsciiDocFormatter) Icon(name string) string {
+	unicodeInt := emojiNameToUnicode(name)
+	return fmt.Sprintf("&#x%X;", unicodeInt)
+}
+
+func (m *AsciiDocFormatter) Link(name string, link string) string {
+	return fmt.Sprintf("%s[%s]", link, name)
+}
+
+func AdmonitionTypeToAsciiDocName(admonitionType AdmonitionType) string {
+	switch admonitionType {
+	case Note:
+		return "NOTE"
+	case Important:
+		return "IMPORTANT"
+	case Warning:
+		return "WARNING"
+	}
+	// CAUTION and TIP is not supported yet
+
+	panic(fmt.Errorf("unknown admonition"))
+}
+
+func (m *AsciiDocFormatter) Admonition(admonitionType AdmonitionType, text string) string {
+	return fmt.Sprintf("%s: %s", AdmonitionTypeToAsciiDocName(admonitionType), text)
+}
+
+func writeToMarkdown(root *ChangelogYaml, outputFormatter Formatter, writer io.Writer) error {
+	if _, err := fmt.Fprint(writer, outputFormatter.Heading(1, "Changelog")); err != nil {
+		return err
+	}
 
 	for _, release := range root.Releases {
-		releaseLink := fmt.Sprintf("[%v](%s%v/releases/tag/%v) (%v)", release.Name,
-			githubUrlPrefix, root.Repo, release.Name, release.Date)
-		fmt.Fprintf(writer, "\n## :bookmark: %v\n", releaseLink)
+		completeReleaseLinkURL := fmt.Sprintf("%s%v/releases/tag/%v", githubUrlPrefix, root.Repo, release.Name)
+		formattedReleaseLink := outputFormatter.Link(release.Name, completeReleaseLinkURL)
+
+		releaseLink := fmt.Sprintf("%v (%v)", formattedReleaseLink, release.Date)
+		releaseHeading := fmt.Sprintf("%s %v", outputFormatter.Icon("bookmark"), releaseLink)
+		if _, err := fmt.Fprint(writer, outputFormatter.Heading(2, releaseHeading)); err != nil {
+			return err
+		}
 
 		if release.Notice != "" {
-			notice := replaceAtProfileLink(release.Notice)
-			fmt.Fprintf(writer, "\n%v\n", notice)
+			notice := replaceAdmonition(release.Notice, outputFormatter)
+			notice = replaceAtProfileLink(notice, outputFormatter)
+			fmt.Fprintf(writer, "%v\n\n", notice)
 		}
 
 		sortedRepoNames := make([]string, 0, len(release.Repos))
@@ -266,20 +436,26 @@ func writeToMarkdown(root *ChangelogYaml, writer io.Writer) error {
 				panic(fmt.Errorf("must have info for repoInfo '%s'", repoName))
 			}
 
-			repoLink := fmt.Sprintf("%s%v", githubUrlPrefix, info.Repo)
+			repoURL := fmt.Sprintf("%s%v", githubUrlPrefix, info.Repo)
 			description := ""
 
 			if info.Description != "" {
 				description = fmt.Sprintf(" - %v", info.Description)
 			}
 
-			if _, err := fmt.Fprintf(writer, "\n### [%v](%v)%v\n\n", repoName, repoLink, description); err != nil {
+			formattedRepoLink := outputFormatter.Link(repoName, repoURL)
+
+			completeLine := fmt.Sprintf("%s%v", formattedRepoLink, description)
+
+			if _, err := fmt.Fprint(writer, outputFormatter.Heading(3, completeLine)); err != nil {
 				return err
 			}
 
-			if err := textLinesForTheRepo(info.Repo, &repoInfo, writer); err != nil {
+			if err := textLinesForTheRepo(info.Repo, &repoInfo, outputFormatter, writer); err != nil {
 				return err
 			}
+
+			fmt.Fprintf(writer, "\n")
 		}
 	}
 
@@ -287,12 +463,22 @@ func writeToMarkdown(root *ChangelogYaml, writer io.Writer) error {
 }
 
 func main() {
+	var outputFormat = flag.String("format", "markdown", "output format: md or adoc")
+	flag.Parse()
+
 	var c ChangelogYaml
 
 	reader := bufio.NewReader(os.Stdin)
 	c.ReadYaml(reader)
 
-	err := writeToMarkdown(&c, os.Stdout)
+	var formatter Formatter
+	if *outputFormat == "adoc" || *outputFormat == "asciidoc" {
+		formatter = &AsciiDocFormatter{}
+	} else {
+		formatter = &MarkdownFormatter{}
+	}
+
+	err := writeToMarkdown(&c, formatter, os.Stdout)
 	if err != nil {
 		os.Exit(-2)
 	}
