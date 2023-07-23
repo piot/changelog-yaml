@@ -9,7 +9,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"regexp"
@@ -19,7 +18,7 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-type Module struct {
+type RepoChanges struct {
 	Improved     []string
 	Changed      []string
 	Added        []string
@@ -37,13 +36,13 @@ type Module struct {
 }
 
 type Release struct {
-	Name    string
-	Date    string
-	Notice  string
-	Modules map[string]Module `yaml:"modules"`
+	Name   string
+	Date   string
+	Notice string
+	Repos  map[string]RepoChanges `yaml:"repos"`
 }
 
-type ModuleDefinition struct {
+type RepoDefinition struct {
 	Repo        string
 	Name        string
 	Description string
@@ -52,11 +51,11 @@ type ModuleDefinition struct {
 type ChangelogYaml struct {
 	Repo     string
 	Releases []Release
-	Modules  map[string]ModuleDefinition `yaml:"modules"`
+	Repos    map[string]RepoDefinition `yaml:"repos"`
 }
 
 func (c *ChangelogYaml) ReadYaml(filename io.Reader) *ChangelogYaml {
-	yamlFile, err := ioutil.ReadAll(filename)
+	yamlFile, err := io.ReadAll(filename)
 	if err != nil {
 		log.Fatalf("could not read file %v ", err)
 	}
@@ -73,6 +72,8 @@ type CategoryInfo struct {
 	Prefix string
 	Name   string
 }
+
+const githubUrlPrefix = "https://github.com/"
 
 func infoFromCategoryName(name string) CategoryInfo {
 	lookup := map[string]CategoryInfo{
@@ -110,7 +111,7 @@ func replaceAtProfileLink(line string) string {
 	if len(allMatches) > 0 {
 		for _, match := range allMatches {
 			usernameString := line[match[0]+1 : match[1]]
-			usernameProfileLink := fmt.Sprintf("https://github.com/%v", usernameString)
+			usernameProfileLink := fmt.Sprintf("%s%v", githubUrlPrefix, usernameString)
 			usernameProfileLinkComplete := fmt.Sprintf("[@%v](%s)", usernameString, usernameProfileLink)
 			lineToPrint += line[previousMatchPosition:match[0]] + usernameProfileLinkComplete
 			previousMatchPosition = match[1]
@@ -124,8 +125,8 @@ func replaceAtProfileLink(line string) string {
 	return lineToPrint
 }
 
-func replacePullRequestLink(line string, moduleRepoURL string) (string, error) {
-	re := regexp.MustCompile(`\#\d*`)
+func replacePullRequestLink(line string, repoShortUrl string) (string, error) {
+	re := regexp.MustCompile(`#\d*`)
 	allMatches := re.FindAllStringIndex(line, -1)
 
 	lineToPrint := ""
@@ -141,7 +142,7 @@ func replacePullRequestLink(line string, moduleRepoURL string) (string, error) {
 			}
 
 			suffix := fmt.Sprintf("pull/%v", pullRequestID)
-			pullRequestLink := fmt.Sprintf("https://%v/%v", moduleRepoURL, suffix)
+			pullRequestLink := fmt.Sprintf("%s%v/%v", githubUrlPrefix, repoShortUrl, suffix)
 			pullRequestCompleteLink := fmt.Sprintf("[#%v](%s)", pullRequestID, pullRequestLink)
 			lineToPrint += line[previousMatchPosition:match[0]] + pullRequestCompleteLink
 			previousMatchPosition = match[1]
@@ -155,7 +156,7 @@ func replacePullRequestLink(line string, moduleRepoURL string) (string, error) {
 	return lineToPrint, nil
 }
 
-func replaceCommitHashLink(line string, moduleRepoURL string) string {
+func replaceCommitHashLink(line string, repoShortUrl string) string {
 	re := regexp.MustCompile(`\$[a-f\d]*`)
 	allMatches := re.FindAllStringIndex(line, -1)
 
@@ -165,7 +166,7 @@ func replaceCommitHashLink(line string, moduleRepoURL string) string {
 	if len(allMatches) > 0 {
 		for _, match := range allMatches {
 			commitHashString := line[match[0]+1 : match[1]]
-			commitHashLink := fmt.Sprintf("https://%v/commit/%v", moduleRepoURL, commitHashString)
+			commitHashLink := fmt.Sprintf("%s%v/commit/%v", githubUrlPrefix, repoShortUrl, commitHashString)
 			commitHashLinkComplete := fmt.Sprintf("[%v](%s)", commitHashString, commitHashLink)
 			lineToPrint += line[previousMatchPosition:match[0]] + commitHashLinkComplete
 			previousMatchPosition = match[1]
@@ -179,7 +180,7 @@ func replaceCommitHashLink(line string, moduleRepoURL string) string {
 	return lineToPrint
 }
 
-func moduleLines(moduleRepoUrl string, strings []string, name string, writer io.Writer) error {
+func linesForRepo(repoShortUrl string, strings []string, name string, writer io.Writer) error {
 	for _, line := range strings {
 		categoryInfo := infoFromCategoryName(name)
 		prefix := categoryInfo.Prefix
@@ -188,44 +189,61 @@ func moduleLines(moduleRepoUrl string, strings []string, name string, writer io.
 			prefix += fmt.Sprintf("[%v]", categoryInfo.Name)
 		}
 
-		line, err := replacePullRequestLink(line, moduleRepoUrl)
+		line, err := replacePullRequestLink(line, repoShortUrl)
 		if err != nil {
 			return err
 		}
 
-		line = replaceCommitHashLink(line, moduleRepoUrl)
+		line = replaceCommitHashLink(line, repoShortUrl)
 
 		line = replaceAtProfileLink(line)
 
-		fmt.Fprintf(writer, "* %v %v\n", prefix, line)
+		if _, err := fmt.Fprintf(writer, "* %v %v\n", prefix, line); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
-func moduleGroupedLines(moduleRepoUrl string, module *Module, writer io.Writer) {
-	moduleLines(moduleRepoUrl, module.Breaking, "breaking", writer)
-	moduleLines(moduleRepoUrl, module.Added, "added", writer)
-	moduleLines(moduleRepoUrl, module.Fixed, "fixed", writer)
-	moduleLines(moduleRepoUrl, module.Workaround, "workaround", writer)
-	moduleLines(moduleRepoUrl, module.Changed, "changed", writer)
-	moduleLines(moduleRepoUrl, module.Removed, "removed", writer)
-	moduleLines(moduleRepoUrl, module.Improved, "improved", writer)
-	moduleLines(moduleRepoUrl, module.Docs, "docs", writer)
-	moduleLines(moduleRepoUrl, module.Tests, "tests", writer)
-	moduleLines(moduleRepoUrl, module.Refactored, "refactored", writer)
-	moduleLines(moduleRepoUrl, module.Performance, "performance", writer)
-	moduleLines(moduleRepoUrl, module.Deprecated, "deprecated", writer)
-	moduleLines(moduleRepoUrl, module.Experimental, "experimental", writer)
-	moduleLines(moduleRepoUrl, module.Noted, "noted", writer)
+type LineInfo struct {
+	Name  string
+	Lines []string
+}
+
+func textLinesForTheRepo(repoShortUrl string, repoChanges *RepoChanges, writer io.Writer) error {
+	lines := []LineInfo{
+		{"breaking", repoChanges.Breaking},
+		{"added", repoChanges.Added},
+		{"fixed", repoChanges.Fixed},
+		{"workaround", repoChanges.Workaround},
+		{"changed", repoChanges.Changed},
+		{"removed", repoChanges.Removed},
+		{"improved", repoChanges.Improved},
+		{"docs", repoChanges.Docs},
+		{"tests", repoChanges.Tests},
+		{"refactored", repoChanges.Refactored},
+		{"deprecated", repoChanges.Deprecated},
+		{"experimental", repoChanges.Experimental},
+		{"noted", repoChanges.Noted},
+		{"performance", repoChanges.Performance},
+	}
+
+	for _, line := range lines {
+		if err := linesForRepo(repoShortUrl, line.Lines, line.Name, writer); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func writeToMarkdown(root *ChangelogYaml, writer io.Writer) error {
 	fmt.Fprintln(writer, "# Changelog")
 
 	for _, release := range root.Releases {
-		releaseLink := fmt.Sprintf("[%v](https://%v/releases/tag/%v) (%v)", release.Name,
-			root.Repo, release.Name, release.Date)
+		releaseLink := fmt.Sprintf("[%v](%s%v/releases/tag/%v) (%v)", release.Name,
+			githubUrlPrefix, root.Repo, release.Name, release.Date)
 		fmt.Fprintf(writer, "\n## :bookmark: %v\n", releaseLink)
 
 		if release.Notice != "" {
@@ -233,30 +251,35 @@ func writeToMarkdown(root *ChangelogYaml, writer io.Writer) error {
 			fmt.Fprintf(writer, "\n%v\n", notice)
 		}
 
-		sortedModuleNames := make([]string, 0, len(release.Modules))
-		for k := range release.Modules {
-			sortedModuleNames = append(sortedModuleNames, k)
+		sortedRepoNames := make([]string, 0, len(release.Repos))
+		for k := range release.Repos {
+			sortedRepoNames = append(sortedRepoNames, k)
 		}
 
-		sort.Strings(sortedModuleNames)
+		sort.Strings(sortedRepoNames)
 
-		for _, moduleName := range sortedModuleNames {
-			module := release.Modules[moduleName]
+		for _, repoName := range sortedRepoNames {
+			repoInfo := release.Repos[repoName]
 
-			info, found := root.Modules[moduleName]
+			info, found := root.Repos[repoName]
 			if !found {
-				panic(fmt.Errorf("must have info for module '%s'", moduleName))
+				panic(fmt.Errorf("must have info for repoInfo '%s'", repoName))
 			}
 
-			repoLink := fmt.Sprintf("https://%v", info.Repo)
+			repoLink := fmt.Sprintf("%s%v", githubUrlPrefix, info.Repo)
 			description := ""
 
 			if info.Description != "" {
 				description = fmt.Sprintf(" - %v", info.Description)
 			}
 
-			fmt.Fprintf(writer, "\n### [%v](%v)%v\n\n", moduleName, repoLink, description)
-			moduleGroupedLines(info.Repo, &module, writer)
+			if _, err := fmt.Fprintf(writer, "\n### [%v](%v)%v\n\n", repoName, repoLink, description); err != nil {
+				return err
+			}
+
+			if err := textLinesForTheRepo(info.Repo, &repoInfo, writer); err != nil {
+				return err
+			}
 		}
 	}
 
