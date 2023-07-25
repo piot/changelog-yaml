@@ -4,7 +4,7 @@
 ## Usage
 
 ```shell
-changelog-yaml-go < changelog.yaml > CHANGELOG.md
+changelog-yaml -t markdown < changelog.yaml > CHANGELOG.md
 ```
 
 ## Changelog Yaml format
