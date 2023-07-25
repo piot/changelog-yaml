@@ -1,4 +1,4 @@
-module github.com/piot/changelog-yaml-go
+module github.com/piot/changelog-yaml
 
 go 1.20
 
