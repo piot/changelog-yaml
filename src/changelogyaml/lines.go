@@ -53,8 +53,9 @@ type LineInfo struct {
 	Lines    []string
 }
 
-func textLinesForTheRepo(repoShortUrl string, repoChanges *RepoChanges, formatter Formatter, writer io.Writer) error {
+func textLinesForTheRepo(repoShortUrl string, repoChanges *Changes, formatter Formatter, writer io.Writer) error {
 	lines := []LineInfo{
+		{Unreleased, repoChanges.Unreleased},
 		{Breaking, repoChanges.Breaking},
 		{Added, repoChanges.Added},
 		{Fixed, repoChanges.Fixed},
@@ -69,6 +70,7 @@ func textLinesForTheRepo(repoShortUrl string, repoChanges *RepoChanges, formatte
 		{Experimental, repoChanges.Experimental},
 		{Noted, repoChanges.Noted},
 		{Performance, repoChanges.Performance},
+		{Style, repoChanges.Style},
 	}
 
 	for _, line := range lines {

@@ -24,6 +24,8 @@ func emojiNameToUnicode(name string) int {
 		"alembic":                 0x2697,
 		"book":                    0x1F4D6,
 		"noted":                   0x1FAB2,
+		"gem":                     0x1F48E,
+		"soon":                    0x1F51C,
 	}
 
 	replacement, wasFound := lookup[name]

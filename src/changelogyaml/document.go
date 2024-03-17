@@ -32,6 +32,36 @@ func WriteDocument(root *ChangelogYaml, outputFormatter Formatter, writer io.Wri
 			fmt.Fprintf(writer, "%v\n\n", notice)
 		}
 
+		sortedKeys := make([]string, 0, len(release.Sections))
+		for key := range release.Sections {
+			sortedKeys = append(sortedKeys, key)
+		}
+
+		sort.Slice(sortedKeys, func(i, j int) bool {
+			return release.Sections[sortedKeys[i]].Order < release.Sections[sortedKeys[j]].Order
+		})
+
+		for _, sortedKey := range sortedKeys {
+			sectionInfo := release.Sections[sortedKey]
+			completeLine := sortedKey
+
+			if _, err := fmt.Fprint(writer, outputFormatter.Heading(3, completeLine)); err != nil {
+				return err
+			}
+
+			if sectionInfo.Notice != "" {
+				notice := replaceAdmonition(sectionInfo.Notice, outputFormatter)
+				notice = replaceAtProfileLink(notice, outputFormatter)
+				fmt.Fprintf(writer, "%v\n\n", notice)
+			}
+
+			if err := textLinesForTheRepo(root.Repo, &sectionInfo.Changes, outputFormatter, writer); err != nil {
+				return err
+			}
+
+			fmt.Fprintf(writer, "\n")
+		}
+
 		sortedRepoNames := make([]string, 0, len(release.Repos))
 		for k := range release.Repos {
 			sortedRepoNames = append(sortedRepoNames, k)

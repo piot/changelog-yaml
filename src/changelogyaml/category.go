@@ -24,6 +24,8 @@ const (
 	Experimental
 	Docs
 	Noted
+	Style
+	Unreleased
 )
 
 type CategoryInfo struct {
@@ -47,6 +49,8 @@ func infoFromCategoryName(name CategoryType) CategoryInfo {
 		Experimental: {"alembic", "experimental"},
 		Docs:         {"book", "docs"},
 		Noted:        {"beetle", "known issue"},
+		Style:        {"gem", "style"},
+		Unreleased:   {"soon", "unreleased"},
 	}
 
 	info, wasFound := lookup[name]
